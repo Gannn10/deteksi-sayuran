@@ -40,10 +40,10 @@ function App() {
         cancelAnimationFrame(detectionCleanupRef.current);
       }
       if (state.services.camera) {
-        state.services.camera.stop();
+        state.services.camera.stopCamera();
       }
     };
-  }, [actions, state.services.camera]);
+  }, []);
 
   const runDetection = useCallback(async () => {
     if (!isRunningRef.current || !state.services.detector) return;
@@ -73,17 +73,23 @@ function App() {
   const toggleCamera = async () => {
     if (state.isRunning) {
       isRunningRef.current = false;
-      state.services.camera.stop();
+      state.services.camera.stopCamera();
       actions.setRunning(false);
       actions.resetResults();
     } else {
       try {
-        await state.services.camera.start();
+        // Pastikan element video sudah terpasang di service sebelum start
+        const videoElement = state.services.camera.getVideoElement();
+        if (!videoElement) {
+          throw new Error('Elemen video belum siap. Tunggu sebentar...');
+        }
+
+        await state.services.camera.startCamera();
         isRunningRef.current = true;
         actions.setRunning(true);
         runDetection();
       } catch (err) {
-        actions.setError(`Kamera tidak dapat diakses: ${err.message}`);
+        actions.setError(`Kamera gagal: ${err.message}`);
       }
     }
   };
@@ -126,7 +132,7 @@ function App() {
           detectionResult={state.detectionResult}
           funFactData={state.funFactData}
           error={state.error}
-          onCopy={handleCopyFact}
+          onCopyFact={handleCopyFact}
         />
       </main>
 

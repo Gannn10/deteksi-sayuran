@@ -15,7 +15,7 @@ export class CameraService {
     this.canvas = canvasElement;
   }
 
-  // TODO [Basic] Tambahkan konfigurasi kamera untuk mendapatkan daftar perangkat input video
+  // [Basic] Mendapatkan daftar perangkat input video
   async loadCameras() {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -26,7 +26,7 @@ export class CameraService {
     }
   }
 
-  // TODO [Basic] Memulai kamera dengan perangkat yang dipilih dan menampilkan pada elemen video
+  // [Basic] Memulai kamera dengan pengecekan elemen video yang lebih ketat
   async startCamera(selectedCameraId) {
     this.stopCamera();
 
@@ -39,9 +39,22 @@ export class CameraService {
 
     try {
       this.stream = await navigator.mediaDevices.getUserMedia(constraints);
-      if (this.video) {
+
+      // Memastikan this.video adalah elemen HTMLVideoElement yang valid sebelum memanggil play()
+      if (this.video && this.video instanceof HTMLVideoElement) {
         this.video.srcObject = this.stream;
-        await this.video.play();
+
+        // Menggunakan Promise untuk memastikan video siap diputar
+        return new Promise((resolve, reject) => {
+          this.video.onloadedmetadata = () => {
+            this.video.play()
+              .then(() => resolve(this.stream))
+              .catch((err) => {
+                console.error('Autoplay gagal:', err);
+                reject(err);
+              });
+          };
+        });
       }
       return this.stream;
     } catch (error) {
@@ -50,7 +63,7 @@ export class CameraService {
     }
   }
 
-  // TODO [Basic] Menghentikan siaran kamera dan membersihkan sumber daya
+  // [Basic] Menghentikan siaran kamera dan membersihkan sumber daya
   stopCamera() {
     if (this.stream) {
       this.stream.getTracks().forEach((track) => track.stop());
@@ -61,17 +74,17 @@ export class CameraService {
     }
   }
 
-  // TODO [Skilled] Implementasikan metode untuk mengatur FPS kamera
+  // [Skilled] Mengatur FPS kamera
   setFPS(fps) {
     this.fps = fps;
   }
 
-  // TODO [Basic] Periksa apakah kamera sedang aktif
+  // [Basic] Periksa apakah kamera sedang aktif
   isActive() {
     return !!this.stream && this.stream.active;
   }
 
-  // TODO [Basic] Periksa apakah elemen video siap untuk digunakan
+  // [Basic] Periksa apakah elemen video siap untuk digunakan (readyState 4 = HAVE_ENOUGH_DATA)
   isReady() {
     return !!this.video && this.video.readyState === 4;
   }
