@@ -9,7 +9,7 @@ function CameraSection({
   services,
   modelStatus,
   error,
-  currentTone
+  currentTone,
 }) {
   const [fps, setFps] = useState(30);
   const [cameraType, setCameraType] = useState('default');
@@ -51,7 +51,7 @@ function CameraSection({
     }
   };
 
-  const isModelReady = modelStatus === 'Model AI Siap';
+  const isModelReady = modelStatus === 'Siap';
   const buttonDisabled = !isModelReady;
   const buttonText = isRunning ? 'Stop Scan' : 'Mulai Scan';
 
@@ -67,15 +67,14 @@ function CameraSection({
             playsInline
             className={isRunning ? '' : 'hidden'}
           />
-          
+
           <canvas
             ref={canvasRef}
             id="media-canvas"
             className="hidden"
           />
-
           <div className={`camera-overlay ${isRunning ? 'active' : ''}`}>
-            <div className="overlay-frame"></div>
+            <div className="overlay-frame" />
           </div>
 
           {!isRunning && (
@@ -93,6 +92,7 @@ function CameraSection({
 
         <div className="camera-controls">
           <button
+            type="button"
             id="btn-toggle"
             className={`capture-btn ${isRunning ? 'scanning' : ''}`}
             onClick={onToggleCamera}
@@ -119,7 +119,11 @@ function CameraSection({
           </div>
 
           <div className="setting-item fps-setting">
-            <span id="fps-label">{fps} FPS</span>
+            <span id="fps-label">
+              {fps}
+              {' '}
+              FPS
+            </span>
             <input
               id="fps-slider"
               type="range"
@@ -140,7 +144,7 @@ function CameraSection({
               onChange={handleToneChange}
               disabled={isRunning}
             >
-              {TONE_CONFIG.availableTones.map(option => (
+              {TONE_CONFIG.availableTones.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>

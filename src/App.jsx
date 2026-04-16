@@ -1,8 +1,11 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import CameraSection from './components/CameraSection';
 import InfoPanel from './components/InfoPanel';
 import { useAppState } from './hooks/useAppState';
+import { DetectionService } from './services/DetectionService';
+import { RootFactsService } from './services/RootFactsService';
+import { CameraService } from './services/CameraService';
 
 function App() {
   const { state, actions } = useAppState();
@@ -10,17 +13,98 @@ function App() {
   const isRunningRef = useRef(false);
   const [currentTone, setCurrentTone] = useState('normal');
 
-  // TODO [Basic] Inisialisasi layanan deteksi, kamera, dan generator fakta saat aplikasi dimuat
+  useEffect(() => {
+    const initServices = async () => {
+      try {
+        const detector = new DetectionService();
+        const generator = new RootFactsService();
+        const camera = new CameraService();
 
-  // TODO [Basic] Bersihkan sumber daya saat komponen ditinggalkan
+        actions.setModelStatus('Menunggu Model... 0%');
+        await detector.loadModel();
 
-  // TODO [Basic] Fungsi untuk memulai loop deteksi
+        actions.setModelStatus('Menyiapkan Generator... 50%');
+        await generator.loadModel();
 
-  // TODO [Basic] Fungsi untuk memulai dan menghentikan kamera
+        actions.setServices({ detector, camera, generator });
+        actions.setModelStatus('Siap');
+      } catch (err) {
+        actions.setError(`Gagal inisialisasi: ${err.message}`);
+      }
+    };
 
-  // TODO [Advance] Fungsi untuk mengubah nada fakta yang dihasilkan
+    initServices();
 
-  // TODO [Skilled] Fungsi untuk menyalin fakta ke clipboard
+    return () => {
+      if (detectionCleanupRef.current) {
+        cancelAnimationFrame(detectionCleanupRef.current);
+      }
+      if (state.services.camera) {
+        state.services.camera.stop();
+      }
+    };
+  }, [actions, state.services.camera]);
+
+  const runDetection = useCallback(async () => {
+    if (!isRunningRef.current || !state.services.detector) return;
+
+    try {
+      const videoElement = state.services.camera.getVideoElement();
+      if (videoElement && videoElement.readyState === 4) {
+        const result = await state.services.detector.predict(videoElement);
+
+        if (result && result.confidence > 0.6) {
+          actions.setDetectionResult(result);
+          actions.setAppState('detecting');
+
+          actions.setAppState('generating');
+          const fact = await state.services.generator.generateFacts(result.label);
+          actions.setFunFactData(fact);
+          actions.setAppState('idle');
+        }
+      }
+    } catch (err) {
+      console.error('Detection error:', err);
+    }
+
+    detectionCleanupRef.current = requestAnimationFrame(runDetection);
+  }, [state.services, actions]);
+
+  const toggleCamera = async () => {
+    if (state.isRunning) {
+      isRunningRef.current = false;
+      state.services.camera.stop();
+      actions.setRunning(false);
+      actions.resetResults();
+    } else {
+      try {
+        await state.services.camera.start();
+        isRunningRef.current = true;
+        actions.setRunning(true);
+        runDetection();
+      } catch (err) {
+        actions.setError(`Kamera tidak dapat diakses: ${err.message}`);
+      }
+    }
+  };
+
+  const handleToneChange = (tone) => {
+    setCurrentTone(tone);
+    if (state.services.generator) {
+      state.services.generator.setTone(tone);
+    }
+  };
+
+  const handleCopyFact = async () => {
+    if (state.funFactData) {
+      try {
+        await navigator.clipboard.writeText(state.funFactData);
+        alert('Fakta berhasil disalin!');
+      } catch (err) {
+        actions.setError('Gagal menyalin teks.');
+      }
+    }
+  };
 
   return (
     <div className="app-container">
@@ -33,6 +117,8 @@ function App() {
           modelStatus={state.modelStatus}
           error={state.error}
           currentTone={currentTone}
+          onToggleCamera={toggleCamera}
+          onToneChange={handleToneChange}
         />
 
         <InfoPanel
@@ -40,6 +126,7 @@ function App() {
           detectionResult={state.detectionResult}
           funFactData={state.funFactData}
           error={state.error}
+          onCopy={handleCopyFact}
         />
       </main>
 
@@ -64,10 +151,13 @@ function App() {
           display: 'flex',
           alignItems: 'center',
           gap: '0.5rem',
-          zIndex: 1000
+          zIndex: 1000,
         }}>
-          <strong>Error:</strong> {state.error}
+          <strong>Error:</strong>
+          {' '}
+          {state.error}
           <button
+            type="button"
             onClick={() => actions.setError(null)}
             style={{
               marginLeft: 'auto',
@@ -77,7 +167,7 @@ function App() {
               cursor: 'pointer',
               color: '#991b1b',
               padding: 0,
-              lineHeight: 1
+              lineHeight: 1,
             }}
           >
             ×

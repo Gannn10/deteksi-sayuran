@@ -1,27 +1,41 @@
+import { pipeline } from '@huggingface/transformers';
 import { TONE_CONFIG } from '../utils/config.js';
 
 export class RootFactsService {
   constructor() {
     this.generator = null;
-    this.isModelLoaded = false;
-    this.isGenerating = false;
-    this.config = null;
-    this.currentBackend = null;
     this.currentTone = TONE_CONFIG.defaultTone;
   }
 
-  // TODO [Basic] Muat model dan inisialisasi pipeline text2text-generation
-  // TODO [Advance] Implementasikan strategi Backend Adaptive
-  async loadModel() {}
+  async loadModel() {
+    const device = navigator.gpu ? 'webgpu' : 'webgl';
+    this.generator = await pipeline('text2text-generation', 'Xenova/la-mini-flan-t5-small', { device });
+  }
 
-  // TODO [Advance] Konfigurasi tone fakta yang dihasilkan
-  setTone(tone) {}
+  setTone(tone) {
+    this.currentTone = tone;
+  }
 
-  // TODO [Basic] Lakukan prediksi pada elemen gambar yang diberikan dan kembalikan hasilnya
-  // TODO [Skilled] Konfigurasikan parameter generasi berdasarkan kebutuhan
-  // TODO [Advance] Implemenasikan parameter tone untuk mengatur nada fakta yang dihasilkan
-  async generateFacts(vegetableName) {}
+  async generateFacts(vegetableName) {
+    if (!this.generator) return null;
 
-  // TODO [Basic] Periksa apakah model sudah dimuat dan siap digunakan
-  isReady() {}
+    const prompts = {
+      funny: `Tell a very funny joke or hilarious fact about ${vegetableName} in one short sentence.`,
+      historical: `Tell a brief historical origin story about ${vegetableName} in one short sentence.`,
+      normal: `Give me an interesting fun fact about ${vegetableName} in one short sentence.`,
+    };
+
+    const result = await this.generator(prompts[this.currentTone] || prompts.normal, {
+      max_new_tokens: 50,
+      temperature: 0.7,
+      top_p: 0.9,
+      do_sample: true,
+    });
+
+    return result[0].generated_text;
+  }
+
+  isReady() {
+    return !!this.generator;
+  }
 }

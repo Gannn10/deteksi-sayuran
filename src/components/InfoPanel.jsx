@@ -2,8 +2,8 @@ import { Sparkles, Search, CheckCircle, Lightbulb, Copy, Share2 } from 'lucide-r
 
 function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }) {
   const isIdle = appState === 'idle';
-  const isAnalyzing = appState === 'analyzing';
-  const isResult = appState === 'result';
+  const isAnalyzing = appState === 'analyzing' || appState === 'generating' || appState === 'detecting';
+  const isResult = appState === 'result' || (appState === 'idle' && detectionResult);
 
   const renderIdleState = () => (
     <div id="state-idle" className="result-card idle-card">
@@ -23,7 +23,7 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
   const renderAnalyzingState = () => (
     <div id="state-loading" className="result-card loading-card">
       <div className="loading-animation">
-        <div className="loading-ring"></div>
+        <div className="loading-ring" />
         <div className="loading-icon">
           <Search size={24} />
         </div>
@@ -36,13 +36,14 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
   const renderResultState = () => {
     if (!detectionResult) return null;
 
-    const confidence = Math.round(detectionResult.score * 100);
+    // Menyesuaikan dengan property dari DetectionService (label & confidence)
+    const confidence = Math.round((detectionResult.confidence || 0) * 100);
 
     const renderFunFactContent = () => {
       if (funFactData === null) {
         return (
           <div id="fun-fact-loading" className="fun-fact-loading">
-            <div className="fun-fact-loading-spinner"></div>
+            <div className="fun-fact-loading-spinner" />
             <span>Memuat fakta menarik...</span>
           </div>
         );
@@ -50,12 +51,12 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
 
       if (funFactData === 'error') {
         return (
-          <div style={{ 
-            padding: '0.75rem', 
-            background: '#fef3c7', 
+          <div style={{
+            padding: '0.75rem',
+            background: '#fef3c7',
             borderRadius: 'var(--radius-sm)',
             fontSize: '0.875rem',
-            color: '#92400e'
+            color: '#92400e',
           }}>
             Gagal menghasilkan fakta menarik. Mode offline atau layanan tidak tersedia.
           </div>
@@ -69,7 +70,7 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
       <div id="state-result" className="result-card result-main">
         <div className="detected-badge">
           <CheckCircle size={14} />
-          <span id="detected-name">{detectionResult.className}</span>
+          <span id="detected-name">{detectionResult.label}</span>
         </div>
 
         <div className="fun-fact-card">
@@ -82,6 +83,7 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
             </div>
             {funFactData && funFactData !== 'error' && (
               <button
+                type="button"
                 id="btn-copy"
                 className="copy-btn"
                 onClick={onCopyFact}
@@ -96,13 +98,16 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
         <div className="confidence-bar">
           <span className="confidence-label">Kepercayaan</span>
           <div className="confidence-track">
-            <div 
+            <div
               id="confidence-fill"
-              className="confidence-fill" 
+              className="confidence-fill"
               style={{ width: `${confidence}%` }}
-            ></div>
+            />
           </div>
-          <span id="detected-confidence" className="confidence-value">{confidence}%</span>
+          <span id="detected-confidence" className="confidence-value">
+            {confidence}
+            %
+          </span>
         </div>
 
         <div className="share-hint">
@@ -115,9 +120,9 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
 
   return (
     <section className="results-section" aria-live="polite">
-      {isIdle && renderIdleState()}
+      {isIdle && !detectionResult && renderIdleState()}
       {isAnalyzing && renderAnalyzingState()}
-      {isResult && renderResultState()}
+      {(isResult || detectionResult) && !isAnalyzing && renderResultState()}
     </section>
   );
 }
