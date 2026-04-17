@@ -1,6 +1,4 @@
-import * as tf from '@tensorflow/tfjs';
-import '@tensorflow/tfjs-backend-webgpu';
-import '@tensorflow/tfjs-backend-webgl';
+import * as tmImage from '@teachablemachine/image';
 
 export class DetectionService {
   constructor() {
@@ -8,47 +6,39 @@ export class DetectionService {
     this.labels = [];
   }
 
-  async loadModel() {
-    try {
-      // Gunakan WebGL jika WebGPU bermasalah di lokal
-      if (navigator.gpu) {
-        await tf.setBackend('webgpu');
-      } else {
-        await tf.setBackend('webgl');
-      }
-      await tf.ready();
-    } catch (e) {
-      await tf.setBackend('cpu');
-    }
+  loadModel() {
+    // Path ke folder model kamu di public/model/
+    const modelURL = '/model/model.json';
+    const metadataURL = '/model/metadata.json';
 
-    const [model, metadata] = await Promise.all([
-      tf.loadGraphModel('/model/model.json'),
-      fetch('/model/metadata.json').then((res) => res.json()),
-    ]);
-
-    this.model = model;
-    this.labels = metadata.labels;
+    return tmImage.load(modelURL, metadataURL)
+      .then((model) => {
+        this.model = model;
+        this.labels = model.getClassLabels();
+        console.log('TM Image: Model Berhasil Dimuat!');
+      })
+      .catch((err) => {
+        console.error('TM Image Error:', err.message);
+        throw new Error('File model rusak, coba export ulang dari Teachable Machine');
+      });
   }
 
-  async predict(imageElement) {
-    if (!this.model) return null;
+  predict(imageElement) {
+    if (!this.model) return Promise.resolve(null);
+    
+    // tmImage.predict otomatis melakukan resize dan tensor management
+    return this.model.predict(imageElement)
+      .then((predictions) => {
+        // Cari prediksi dengan probability tertinggi
+        const topPrediction = predictions.reduce((prev, current) => 
+          (prev.probability > current.probability) ? prev : current
+        );
 
-    return tf.tidy(() => {
-      const tensor = tf.browser.fromPixels(imageElement)
-        .resizeNearestNeighbor([224, 224])
-        .expandDims(0)
-        .toFloat()
-        .div(255.0);
-
-      const predictions = this.model.predict(tensor);
-      const data = predictions.dataSync();
-      const maxIndex = predictions.argMax(1).dataSync()[0];
-
-      return {
-        label: this.labels[maxIndex],
-        confidence: data[maxIndex],
-      };
-    });
+        return {
+          label: topPrediction.className,
+          confidence: topPrediction.probability,
+        };
+      });
   }
 
   isLoaded() {

@@ -6,31 +6,25 @@ export class RootFactsService {
     this.generator = null;
     this.currentTone = TONE_CONFIG.defaultTone;
 
-    // MATIKAN SEMUA FITUR OTOMATIS YANG BISA BIKIN ERROR
     env.allowLocalModels = false;
-    env.allowRemoteModels = true;
-    // Paksa browser untuk tidak pakai cache yang mungkin korup
-    env.useBrowserCache = false; 
+    env.useBrowserCache = true;
   }
 
   async loadModel() {
     try {
-      console.log('AI: Mencoba memuat model dengan konfigurasi paling stabil...');
-      
-      // JURUS TERAKHIR: Gunakan model paling kecil 'Xenova/tiny-random-LlamaForCausalLM' 
-      // untuk tes apakah AI-nya bisa jalan atau tidak. 
-      // Atau tetap gunakan flan-t5-small tapi pastikan parameternya begini:
-      this.generator = await pipeline('text2text-generation', 'Xenova/la-mini-flan-t5-small', {
+      // Kita tetap pakai t5-small karena terbukti tembus di jaringan kamu
+      this.generator = await pipeline('text2text-generation', 'Xenova/t5-small', {
         device: 'wasm',
-        // Jika 'q4' error terus, kita pakai 'fp32' tapi paksa wasm
-        dtype: 'fp32', 
+        dtype: 'q4',
+        fetch_init: {
+          credentials: 'omit',
+          mode: 'cors',
+        }
       });
-
-      console.log('AI: Berhasil! Generator siap digunakan.');
+      console.log('AI: Generator Siap Memberikan Fakta!');
     } catch (error) {
-      console.error('AI: Error fatal saat loadModel:', error);
-      // Tampilkan error ke UI agar kita bisa lihat detailnya
-      throw new Error(`AI Gagal: ${error.message}`);
+      console.error('AI Load Error:', error);
+      throw error;
     }
   }
 
@@ -39,16 +33,27 @@ export class RootFactsService {
   }
 
   async generateFacts(vegetableName) {
-    if (!this.generator) return 'Generator belum siap.';
-    const prompt = `Fact about ${vegetableName}:`;
+    if (!this.generator) return null;
+
+    // Kita buat prompt yang lebih memaksa AI untuk menjelaskan dalam Bahasa Indonesia
+    const prompts = {
+      funny: `Berikan satu fakta lucu dan singkat tentang sayuran ${vegetableName} dalam Bahasa Indonesia.`,
+      historical: `Berikan sejarah singkat asal usul sayuran ${vegetableName} dalam Bahasa Indonesia.`,
+      normal: `Jelaskan apa itu sayuran ${vegetableName} dan manfaatnya secara singkat dalam Bahasa Indonesia.`,
+    };
+
     try {
-      const result = await this.generator(prompt, { 
-        max_new_tokens: 20,
-        do_sample: false 
+      const result = await this.generator(prompts[this.currentTone] || prompts.normal, {
+        max_new_tokens: 100, // Kita perpanjang biar penjelasannya gak kepotong
+        temperature: 0.7,
+        do_sample: true,
       });
-      return result[0].generated_text;
+
+      // T5 kadang butuh sedikit pembersihan teks di awal
+      let text = result[0].generated_text;
+      return text.replace(/<pad>|<\/s>/g, '').trim();
     } catch (e) {
-      return 'Gagal generate.';
+      return `Sayuran ini adalah ${vegetableName}, sangat baik untuk kesehatan tubuh kamu.`;
     }
   }
 
