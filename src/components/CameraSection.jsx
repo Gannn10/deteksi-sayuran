@@ -16,26 +16,26 @@ function CameraSection({
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
 
+  // FIX: tambah optional chaining (?.) agar tidak crash saat services.camera masih null
   useEffect(() => {
-    if (services.camera) {
-      if (videoRef.current && !services.camera.video) {
-        services.camera.setVideoElement(videoRef.current);
-      }
-      if (canvasRef.current && !services.camera.canvas) {
-        services.camera.setCanvasElement(canvasRef.current);
-      }
+    if (!services?.camera) return; // FIX: guard — keluar jika camera belum siap
+    if (videoRef.current) {
+      services.camera.setVideoElement(videoRef.current);
     }
-  });
+    if (canvasRef.current) {
+      services.camera.setCanvasElement(canvasRef.current);
+    }
+  }, [services?.camera, isRunning]); // FIX: optional chaining pada dependency
 
   useEffect(() => {
-    if (services.camera) {
-      services.camera.setFPS(fps);
-    }
-  }, [fps, services.camera]);
+    if (!services?.camera) return; // FIX: guard
+    services.camera.setFPS(fps);
+  }, [fps, services?.camera]); // FIX: optional chaining pada dependency
 
   const handleCameraChange = (newCameraType) => {
     setCameraType(newCameraType);
-    if (services.camera && services.camera.isActive()) {
+    // FIX: tambah optional chaining
+    if (services?.camera && services.camera.isActive()) {
       services.camera.startCamera();
     }
   };
@@ -73,6 +73,7 @@ function CameraSection({
             id="media-canvas"
             className="hidden"
           />
+
           <div className={`camera-overlay ${isRunning ? 'active' : ''}`}>
             <div className="overlay-frame" />
           </div>

@@ -1,15 +1,37 @@
-import { pipeline } from '@huggingface/transformers';
+import { pipeline, env } from '@huggingface/transformers';
 import { TONE_CONFIG } from '../utils/config.js';
 
 export class RootFactsService {
   constructor() {
     this.generator = null;
     this.currentTone = TONE_CONFIG.defaultTone;
+
+    // MATIKAN SEMUA FITUR OTOMATIS YANG BISA BIKIN ERROR
+    env.allowLocalModels = false;
+    env.allowRemoteModels = true;
+    // Paksa browser untuk tidak pakai cache yang mungkin korup
+    env.useBrowserCache = false; 
   }
 
   async loadModel() {
-    const device = navigator.gpu ? 'webgpu' : 'webgl';
-    this.generator = await pipeline('text2text-generation', 'Xenova/la-mini-flan-t5-small', { device });
+    try {
+      console.log('AI: Mencoba memuat model dengan konfigurasi paling stabil...');
+      
+      // JURUS TERAKHIR: Gunakan model paling kecil 'Xenova/tiny-random-LlamaForCausalLM' 
+      // untuk tes apakah AI-nya bisa jalan atau tidak. 
+      // Atau tetap gunakan flan-t5-small tapi pastikan parameternya begini:
+      this.generator = await pipeline('text2text-generation', 'Xenova/la-mini-flan-t5-small', {
+        device: 'wasm',
+        // Jika 'q4' error terus, kita pakai 'fp32' tapi paksa wasm
+        dtype: 'fp32', 
+      });
+
+      console.log('AI: Berhasil! Generator siap digunakan.');
+    } catch (error) {
+      console.error('AI: Error fatal saat loadModel:', error);
+      // Tampilkan error ke UI agar kita bisa lihat detailnya
+      throw new Error(`AI Gagal: ${error.message}`);
+    }
   }
 
   setTone(tone) {
@@ -17,22 +39,17 @@ export class RootFactsService {
   }
 
   async generateFacts(vegetableName) {
-    if (!this.generator) return null;
-
-    const prompts = {
-      funny: `Tell a very funny joke or hilarious fact about ${vegetableName} in one short sentence.`,
-      historical: `Tell a brief historical origin story about ${vegetableName} in one short sentence.`,
-      normal: `Give me an interesting fun fact about ${vegetableName} in one short sentence.`,
-    };
-
-    const result = await this.generator(prompts[this.currentTone] || prompts.normal, {
-      max_new_tokens: 50,
-      temperature: 0.7,
-      top_p: 0.9,
-      do_sample: true,
-    });
-
-    return result[0].generated_text;
+    if (!this.generator) return 'Generator belum siap.';
+    const prompt = `Fact about ${vegetableName}:`;
+    try {
+      const result = await this.generator(prompt, { 
+        max_new_tokens: 20,
+        do_sample: false 
+      });
+      return result[0].generated_text;
+    } catch (e) {
+      return 'Gagal generate.';
+    }
   }
 
   isReady() {

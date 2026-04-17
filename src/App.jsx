@@ -11,6 +11,7 @@ function App() {
   const { state, actions } = useAppState();
   const detectionCleanupRef = useRef(null);
   const isRunningRef = useRef(false);
+  const servicesRef = useRef(null); // FIX: ref untuk hindari stale closure di cleanup
   const [currentTone, setCurrentTone] = useState('normal');
 
   useEffect(() => {
@@ -22,41 +23,34 @@ function App() {
 
         actions.setModelStatus('Menunggu Model... 0%');
         await detector.loadModel();
-
         actions.setModelStatus('Menyiapkan Generator... 50%');
         await generator.loadModel();
 
-        actions.setServices({ detector, camera, generator });
+        const services = { detector, camera, generator };
+        actions.setServices(services);
+        servicesRef.current = services; // FIX: simpan ke ref agar cleanup tidak stale
         actions.setModelStatus('Siap');
       } catch (err) {
         actions.setError(`Gagal inisialisasi: ${err.message}`);
       }
     };
-
     initServices();
 
     return () => {
-      if (detectionCleanupRef.current) {
-        cancelAnimationFrame(detectionCleanupRef.current);
-      }
-      if (state.services.camera) {
-        state.services.camera.stopCamera();
-      }
+      if (detectionCleanupRef.current) cancelAnimationFrame(detectionCleanupRef.current);
+      // FIX: pakai servicesRef bukan state (state di sini adalah stale closure)
+      if (servicesRef.current?.camera) servicesRef.current.camera.stopCamera();
     };
   }, []);
 
   const runDetection = useCallback(async () => {
     if (!isRunningRef.current || !state.services.detector) return;
-
     try {
       const videoElement = state.services.camera.getVideoElement();
       if (videoElement && videoElement.readyState === 4) {
         const result = await state.services.detector.predict(videoElement);
-
         if (result && result.confidence > 0.6) {
           actions.setDetectionResult(result);
-          actions.setAppState('detecting');
-
           actions.setAppState('generating');
           const fact = await state.services.generator.generateFacts(result.label);
           actions.setFunFactData(fact);
@@ -64,13 +58,18 @@ function App() {
         }
       }
     } catch (err) {
-      console.error('Detection error:', err);
+      console.error(err);
     }
-
     detectionCleanupRef.current = requestAnimationFrame(runDetection);
   }, [state.services, actions]);
 
   const toggleCamera = async () => {
+    // FIX: guard — jangan jalankan apapun jika services belum siap
+    if (!state.services.camera || !state.services.detector || !state.services.generator) {
+      actions.setError('Model belum siap, tunggu hingga status "Siap".');
+      return;
+    }
+
     if (state.isRunning) {
       isRunningRef.current = false;
       state.services.camera.stopCamera();
@@ -78,10 +77,10 @@ function App() {
       actions.resetResults();
     } else {
       try {
-        // Pastikan element video sudah terpasang di service sebelum start
-        const videoElement = state.services.camera.getVideoElement();
-        if (!videoElement) {
-          throw new Error('Elemen video belum siap. Tunggu sebentar...');
+        // Ambil elemen langsung sesuai tips Dicoding
+        const el = document.getElementById('media-video');
+        if (el) {
+          state.services.camera.setVideoElement(el);
         }
 
         await state.services.camera.startCamera();
@@ -96,9 +95,7 @@ function App() {
 
   const handleToneChange = (tone) => {
     setCurrentTone(tone);
-    if (state.services.generator) {
-      state.services.generator.setTone(tone);
-    }
+    if (state.services.generator) state.services.generator.setTone(tone);
   };
 
   const handleCopyFact = async () => {
@@ -107,7 +104,7 @@ function App() {
         await navigator.clipboard.writeText(state.funFactData);
         alert('Fakta berhasil disalin!');
       } catch (err) {
-        actions.setError('Gagal menyalin teks.');
+        actions.setError('Gagal menyalin.');
       }
     }
   };
@@ -115,7 +112,6 @@ function App() {
   return (
     <div className="app-container">
       <Header modelStatus={state.modelStatus} />
-
       <main className="main-content">
         <CameraSection
           isRunning={state.isRunning}
@@ -126,7 +122,6 @@ function App() {
           onToggleCamera={toggleCamera}
           onToneChange={handleToneChange}
         />
-
         <InfoPanel
           appState={state.appState}
           detectionResult={state.detectionResult}
@@ -135,49 +130,13 @@ function App() {
           onCopyFact={handleCopyFact}
         />
       </main>
-
       <footer className="footer">
-        <p>Powered by TensorFlow.js & Transformers.js</p>
+        <p>Powered by TensorFlow.js &amp; Transformers.js</p>
       </footer>
-
       {state.error && (
-        <div style={{
-          position: 'fixed',
-          bottom: '1rem',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          maxWidth: '380px',
-          padding: '0.875rem 1rem',
-          background: '#fef2f2',
-          border: '1px solid #fecaca',
-          borderRadius: 'var(--radius-md)',
-          color: '#991b1b',
-          fontSize: '0.8125rem',
-          boxShadow: 'var(--shadow-lg)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          zIndex: 1000,
-        }}>
-          <strong>Error:</strong>
-          {' '}
-          {state.error}
-          <button
-            type="button"
-            onClick={() => actions.setError(null)}
-            style={{
-              marginLeft: 'auto',
-              background: 'transparent',
-              border: 'none',
-              fontSize: '1.25rem',
-              cursor: 'pointer',
-              color: '#991b1b',
-              padding: 0,
-              lineHeight: 1,
-            }}
-          >
-            ×
-          </button>
+        <div className="error-toast">
+          <strong>Error:</strong> {state.error}
+          <button type="button" onClick={() => actions.setError(null)}>×</button>
         </div>
       )}
     </div>

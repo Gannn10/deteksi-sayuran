@@ -10,6 +10,7 @@ export class DetectionService {
 
   async loadModel() {
     try {
+      // Gunakan WebGL jika WebGPU bermasalah di lokal
       if (navigator.gpu) {
         await tf.setBackend('webgpu');
       } else {
