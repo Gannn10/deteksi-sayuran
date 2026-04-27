@@ -11,23 +11,27 @@ function App() {
   const { state, actions } = useAppState();
   const detectionCleanupRef = useRef(null);
   const isRunningRef = useRef(false);
+  // Flag tambahan: mencegah deteksi jalan ganda saat async sedang berjalan
+  const isDetectingRef = useRef(false);
   const [currentTone, setCurrentTone] = useState('normal');
+  const servicesRef = useRef(null);
 
   useEffect(() => {
     const detector = new DetectionService();
     const generator = new RootFactsService();
     const camera = new CameraService();
 
-    actions.setModelStatus('Menyiapkan AI... 30%');
-    
-    // Gunakan chain .then() agar lebih aman dari regenerator error
+    actions.setModelStatus('Menyiapkan AI...');
+
     generator.loadModel()
       .then(() => {
-        actions.setModelStatus('Memuat Detektor... 70%');
+        actions.setModelStatus('Memuat Detektor...');
         return detector.loadModel();
       })
       .then(() => {
-        actions.setServices({ detector, camera, generator });
+        const services = { detector, camera, generator };
+        servicesRef.current = services;
+        actions.setServices(services);
         actions.setModelStatus('Siap');
       })
       .catch((err) => {
@@ -37,53 +41,116 @@ function App() {
 
     return () => {
       if (detectionCleanupRef.current) cancelAnimationFrame(detectionCleanupRef.current);
-      if (state.services.camera) state.services.camera.stopCamera();
+      if (servicesRef.current?.camera) servicesRef.current.camera.stopCamera();
     };
   }, []);
 
-  const runDetection = useCallback(() => {
-    if (!isRunningRef.current || !state.services.detector) return;
-    
-    const videoElement = document.getElementById('media-video');
-    if (videoElement && videoElement.readyState === 4) {
-      state.services.detector.predict(videoElement)
-        .then((result) => {
-          if (result && result.confidence > 0.6) {
-            actions.setDetectionResult(result);
-            actions.setAppState('generating');
-            return state.services.generator.generateFacts(result.label);
-          }
-        })
-        .then((fact) => {
-          if (fact) {
-            actions.setFunFactData(fact);
-            actions.setAppState('idle');
-          }
-        })
-        .catch(err => console.error(err));
+  const stopCamera = useCallback(() => {
+    isRunningRef.current = false;
+    if (detectionCleanupRef.current) {
+      cancelAnimationFrame(detectionCleanupRef.current);
+      detectionCleanupRef.current = null;
     }
-    detectionCleanupRef.current = requestAnimationFrame(runDetection);
-  }, [state.services, actions]);
+    const camera = servicesRef.current?.camera;
+    if (camera) camera.stopCamera();
+    actions.setRunning(false);
+  }, [actions]);
 
-  const toggleCamera = () => {
+  // Loop deteksi yang benar: async-safe, tidak race condition
+  const runDetectionLoop = useCallback(() => {
+    // Berhenti jika kamera sudah dimatikan
+    if (!isRunningRef.current) return;
+
+    // Skip frame ini jika predict sebelumnya belum selesai
+    if (isDetectingRef.current) {
+      detectionCleanupRef.current = requestAnimationFrame(runDetectionLoop);
+      return;
+    }
+
+    const services = servicesRef.current;
+    if (!services?.detector) {
+      detectionCleanupRef.current = requestAnimationFrame(runDetectionLoop);
+      return;
+    }
+
+    const videoElement = document.getElementById('media-video');
+
+    // Pastikan video benar-benar punya data frame yang valid
+    // readyState 4 = HAVE_ENOUGH_DATA, videoWidth > 0 = frame sudah ada
+    if (
+      !videoElement ||
+      videoElement.readyState < 4 ||
+      videoElement.videoWidth === 0 ||
+      videoElement.paused
+    ) {
+      // Video belum siap, tunggu frame berikutnya
+      detectionCleanupRef.current = requestAnimationFrame(runDetectionLoop);
+      return;
+    }
+
+    // Tandai sedang mendeteksi agar tidak dobel
+    isDetectingRef.current = true;
+
+    services.detector.predict(videoElement)
+      .then((result) => {
+        // Cek lagi apakah kamera masih aktif (user mungkin sudah stop)
+        if (!isRunningRef.current) return;
+
+        if (result && result.confidence > 0.6) {
+          // Deteksi berhasil: stop kamera SEKARANG sebelum generate
+          actions.setDetectionResult(result);
+          actions.setAppState('generating');
+          stopCamera(); // Kamera mati, hemat resource
+
+          // Generate fun fact dari label hasil deteksi
+          return services.generator.generateFacts(result.label);
+        }
+      })
+      .then((fact) => {
+        if (fact) {
+          actions.setFunFactData(fact);
+          actions.setAppState('idle');
+        }
+      })
+      .catch(err => console.error('Detection error:', err))
+      .finally(() => {
+        isDetectingRef.current = false;
+
+        // Lanjutkan loop HANYA jika kamera masih aktif (belum ada deteksi berhasil)
+        if (isRunningRef.current) {
+          detectionCleanupRef.current = requestAnimationFrame(runDetectionLoop);
+        }
+      });
+  }, [actions, stopCamera]);
+
+  const toggleCamera = useCallback(() => {
     if (state.isRunning) {
-      isRunningRef.current = false;
-      state.services.camera.stopCamera();
-      actions.setRunning(false);
+      stopCamera();
       actions.resetResults();
     } else {
       const el = document.getElementById('media-video');
-      if (el) state.services.camera.setVideoElement(el);
+      const camera = servicesRef.current?.camera;
 
-      state.services.camera.startCamera()
+      if (!el || !camera) return;
+
+      camera.setVideoElement(el);
+      camera.startCamera()
         .then(() => {
           isRunningRef.current = true;
+          isDetectingRef.current = false;
           actions.setRunning(true);
-          runDetection();
+          actions.resetResults();
+
+          // Tunggu 500ms dulu agar stream sempat warm-up sebelum mulai loop deteksi
+          setTimeout(() => {
+            if (isRunningRef.current) {
+              runDetectionLoop();
+            }
+          }, 500);
         })
         .catch((err) => actions.setError(`Kamera gagal: ${err.message}`));
     }
-  };
+  }, [state.isRunning, actions, stopCamera, runDetectionLoop]);
 
   return (
     <div className="app-container">
