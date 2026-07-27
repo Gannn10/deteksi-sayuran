@@ -1,1 +1,0 @@
-APP_URL= https://deteksi-sayur.netlify.app/
